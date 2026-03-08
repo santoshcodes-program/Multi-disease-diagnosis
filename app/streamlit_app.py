@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import sys
 import importlib.util
+import re
+from difflib import get_close_matches
 
 import pandas as pd
 import streamlit as st
@@ -74,6 +76,42 @@ predictor = MultiDiseasePredictor(artifact_path=artifact_path)
 aux_predictors = load_optional_aux_predictors()
 all_symptoms = predictor.available_symptoms()
 
+
+def _normalize_symptom_token(text: str) -> str:
+    token = text.strip().lower()
+    token = re.sub(r"[^a-z0-9]+", "_", token)
+    token = re.sub(r"_+", "_", token)
+    return token.strip("_")
+
+
+def extract_symptoms_from_text(text: str, symptom_vocab: list[str]) -> tuple[list[str], list[str]]:
+    vocab = set(symptom_vocab)
+    matched: set[str] = set()
+    unknown: list[str] = []
+
+    raw_chunks = re.split(r"[,;\n]|\\band\\b|\\bwith\\b", text.lower())
+    for chunk in raw_chunks:
+        normalized = _normalize_symptom_token(chunk)
+        if not normalized:
+            continue
+        if normalized in vocab:
+            matched.add(normalized)
+            continue
+        close = get_close_matches(normalized, symptom_vocab, n=1, cutoff=0.85)
+        if close:
+            matched.add(close[0])
+        else:
+            unknown.append(normalized)
+
+    normalized_text = re.sub(r"[^a-z0-9]+", " ", text.lower())
+    padded = f" {normalized_text} "
+    for symptom in symptom_vocab:
+        phrase = symptom.replace("_", " ")
+        if f" {phrase} " in padded:
+            matched.add(symptom)
+
+    return sorted(matched), sorted(set(unknown))
+
 with st.sidebar:
     st.header("Patient Profile")
     age = st.number_input("Age", min_value=0, max_value=120, value=35, step=1)
@@ -109,7 +147,13 @@ if aux_predictors:
             thal = st.number_input("Thal", min_value=0, max_value=3, value=2, step=1)
 
 st.subheader("Symptoms")
-selected_symptoms = st.multiselect("Select symptoms", options=all_symptoms)
+symptom_text = st.text_area(
+    "Enter symptoms in text",
+    placeholder="Example: I have fever, cough, fatigue and breathing difficulty.",
+    height=100,
+)
+with st.expander("Optional: manual symptom selection", expanded=False):
+    selected_symptoms_manual = st.multiselect("Select symptoms", options=all_symptoms)
 
 clinical_features = {
     "age": age,
@@ -119,6 +163,18 @@ clinical_features = {
 }
 
 if st.button("Predict Diseases", type="primary"):
+    text_symptoms, unknown_symptoms = extract_symptoms_from_text(symptom_text, all_symptoms)
+    selected_symptoms = sorted(set(text_symptoms).union(set(selected_symptoms_manual)))
+
+    if unknown_symptoms:
+        st.caption(f"Unmatched terms ignored: {', '.join(unknown_symptoms[:10])}")
+
+    if not selected_symptoms:
+        st.warning("No valid symptoms detected. Please enter symptoms like fever, cough, headache.")
+        st.stop()
+
+    st.caption(f"Detected symptoms: {', '.join(selected_symptoms[:15])}")
+
     predictions = predictor.predict_top_k(
         symptoms=selected_symptoms,
         clinical_features=clinical_features,
