@@ -4,8 +4,6 @@ import os
 from pathlib import Path
 import sys
 import importlib.util
-import re
-from difflib import get_close_matches
 
 import pandas as pd
 import streamlit as st
@@ -18,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 try:
     from src.predictor import MultiDiseasePredictor, load_optional_aux_predictors
+    from src.symptom_text import extract_symptoms_from_text
     from src.training import train_pipeline
 except ModuleNotFoundError:
     # Absolute fallback: load modules directly from source files.
@@ -38,6 +37,11 @@ except ModuleNotFoundError:
         PROJECT_ROOT / "src" / "predictor.py",
         "predictor_fallback_2",
         "load_optional_aux_predictors",
+    )
+    extract_symptoms_from_text = _load_attr(
+        PROJECT_ROOT / "src" / "symptom_text.py",
+        "symptom_text_fallback",
+        "extract_symptoms_from_text",
     )
     train_pipeline = _load_attr(
         PROJECT_ROOT / "src" / "training.py",
@@ -75,42 +79,6 @@ if not artifact_path.exists():
 predictor = MultiDiseasePredictor(artifact_path=artifact_path)
 aux_predictors = load_optional_aux_predictors()
 all_symptoms = predictor.available_symptoms()
-
-
-def _normalize_symptom_token(text: str) -> str:
-    token = text.strip().lower()
-    token = re.sub(r"[^a-z0-9]+", "_", token)
-    token = re.sub(r"_+", "_", token)
-    return token.strip("_")
-
-
-def extract_symptoms_from_text(text: str, symptom_vocab: list[str]) -> tuple[list[str], list[str]]:
-    vocab = set(symptom_vocab)
-    matched: set[str] = set()
-    unknown: list[str] = []
-
-    raw_chunks = re.split(r"[,;\n]|\\band\\b|\\bwith\\b", text.lower())
-    for chunk in raw_chunks:
-        normalized = _normalize_symptom_token(chunk)
-        if not normalized:
-            continue
-        if normalized in vocab:
-            matched.add(normalized)
-            continue
-        close = get_close_matches(normalized, symptom_vocab, n=1, cutoff=0.85)
-        if close:
-            matched.add(close[0])
-        else:
-            unknown.append(normalized)
-
-    normalized_text = re.sub(r"[^a-z0-9]+", " ", text.lower())
-    padded = f" {normalized_text} "
-    for symptom in symptom_vocab:
-        phrase = symptom.replace("_", " ")
-        if f" {phrase} " in padded:
-            matched.add(symptom)
-
-    return sorted(matched), sorted(set(unknown))
 
 with st.sidebar:
     st.header("Patient Profile")
