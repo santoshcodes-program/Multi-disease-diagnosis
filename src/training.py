@@ -145,6 +145,7 @@ def train_pipeline(
     fast_mode: bool = False,
     fast_top_diseases: int = 200,
     fast_max_rows: int = 60000,
+    fast_n_estimators: int = 200,
 ) -> dict[str, Any]:
     models_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -196,7 +197,7 @@ def train_pipeline(
         selected_features = X_train.columns.tolist()
         feature_selector = None
         rf_model = RandomForestClassifier(
-            n_estimators=200,
+            n_estimators=fast_n_estimators,
             random_state=random_state,
             class_weight="balanced_subsample",
             n_jobs=1,
@@ -343,6 +344,12 @@ def main() -> None:
         default=60000,
         help="In fast mode, cap training dataset rows for speed.",
     )
+    parser.add_argument(
+        "--fast-n-estimators",
+        type=int,
+        default=200,
+        help="In fast mode, number of RandomForest trees.",
+    )
     args = parser.parse_args()
 
     summary = train_pipeline(
@@ -351,6 +358,7 @@ def main() -> None:
         fast_mode=args.fast_mode,
         fast_top_diseases=args.fast_top_diseases,
         fast_max_rows=args.fast_max_rows,
+        fast_n_estimators=args.fast_n_estimators,
     )
     print(json.dumps(summary, indent=2))
 

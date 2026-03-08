@@ -64,8 +64,9 @@ if not artifact_path.exists():
         train_pipeline(
             dataset_path=dataset_path,
             fast_mode=True,
-            fast_top_diseases=200,
-            fast_max_rows=50000,
+            fast_top_diseases=100,
+            fast_max_rows=15000,
+            fast_n_estimators=80,
         )
     st.success("Model created successfully.")
 

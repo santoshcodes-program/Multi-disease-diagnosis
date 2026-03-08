@@ -5,6 +5,7 @@ __pycache__/
 *.log
 
 models/*.joblib
+!models/multi_disease_model.joblib
 reports/*.json
 reports/*.csv
 
