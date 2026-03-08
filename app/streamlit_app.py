@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import sys
+import importlib.util
 
 import pandas as pd
 import streamlit as st
@@ -17,10 +18,30 @@ try:
     from src.predictor import MultiDiseasePredictor, load_optional_aux_predictors
     from src.training import train_pipeline
 except ModuleNotFoundError:
-    # Fallback for hosted runners with non-standard startup paths.
-    sys.path.insert(0, str(PROJECT_ROOT))
-    from src.predictor import MultiDiseasePredictor, load_optional_aux_predictors
-    from src.training import train_pipeline
+    # Absolute fallback: load modules directly from source files.
+    def _load_attr(module_file: Path, module_name: str, attr_name: str):
+        spec = importlib.util.spec_from_file_location(module_name, module_file)
+        if spec is None or spec.loader is None:
+            raise ModuleNotFoundError(f"Could not load module spec: {module_file}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return getattr(module, attr_name)
+
+    MultiDiseasePredictor = _load_attr(
+        PROJECT_ROOT / "src" / "predictor.py",
+        "predictor_fallback",
+        "MultiDiseasePredictor",
+    )
+    load_optional_aux_predictors = _load_attr(
+        PROJECT_ROOT / "src" / "predictor.py",
+        "predictor_fallback_2",
+        "load_optional_aux_predictors",
+    )
+    train_pipeline = _load_attr(
+        PROJECT_ROOT / "src" / "training.py",
+        "training_fallback",
+        "train_pipeline",
+    )
 
 
 st.set_page_config(page_title="Multi-Disease Diagnosis CDSS", page_icon="CDSS", layout="wide")
