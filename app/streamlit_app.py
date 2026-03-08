@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import os
 from pathlib import Path
 import sys
 
@@ -8,11 +9,18 @@ import streamlit as st
 
 # Ensure project root is importable when Streamlit runs from app/ path.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.predictor import MultiDiseasePredictor, load_optional_aux_predictors
-from src.training import train_pipeline
+try:
+    from src.predictor import MultiDiseasePredictor, load_optional_aux_predictors
+    from src.training import train_pipeline
+except ModuleNotFoundError:
+    # Fallback for hosted runners with non-standard startup paths.
+    sys.path.insert(0, str(PROJECT_ROOT))
+    from src.predictor import MultiDiseasePredictor, load_optional_aux_predictors
+    from src.training import train_pipeline
 
 
 st.set_page_config(page_title="Multi-Disease Diagnosis CDSS", page_icon="CDSS", layout="wide")
