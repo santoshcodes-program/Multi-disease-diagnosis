@@ -130,18 +130,48 @@ clinical_features = {
     "glucose": glucose,
 }
 
-if st.button("Predict Diseases", type="primary"):
-    text_symptoms, unknown_symptoms = extract_symptoms_from_text(symptom_text, all_symptoms)
-    selected_symptoms = sorted(set(text_symptoms).union(set(selected_symptoms_manual)))
+text_symptoms, unknown_symptoms = extract_symptoms_from_text(symptom_text, all_symptoms)
+base_symptoms = sorted(set(text_symptoms).union(set(selected_symptoms_manual)))
 
-    if unknown_symptoms:
-        st.caption(f"Unmatched terms ignored: {', '.join(unknown_symptoms[:10])}")
+if unknown_symptoms:
+    st.caption(f"Unmatched terms ignored: {', '.join(unknown_symptoms[:10])}")
+
+if base_symptoms:
+    st.caption(f"Detected symptoms: {', '.join(base_symptoms[:15])}")
+
+use_interactive_triage = st.checkbox(
+    "Use interactive follow-up questions (recommended)",
+    value=True,
+    help="Adds targeted yes/no questions to refine prediction accuracy.",
+)
+
+followup_confirmed: list[str] = []
+if use_interactive_triage and base_symptoms:
+    followup_suggestions = predictor.suggest_followup_symptoms(
+        symptoms=base_symptoms,
+        clinical_features=clinical_features,
+        n_questions=4,
+    )
+    if followup_suggestions:
+        st.subheader("Follow-up Questions")
+        st.caption("Answer these to improve prediction quality.")
+        for symptom in followup_suggestions:
+            label = symptom.replace("_", " ")
+            answer = st.radio(
+                f"Are you also experiencing {label}?",
+                options=["Not sure", "Yes", "No"],
+                horizontal=True,
+                key=f"followup_{symptom}",
+            )
+            if answer == "Yes":
+                followup_confirmed.append(symptom)
+
+if st.button("Predict Diseases", type="primary"):
+    selected_symptoms = sorted(set(base_symptoms).union(set(followup_confirmed)))
 
     if not selected_symptoms:
         st.warning("No valid symptoms detected. Please enter symptoms like fever, cough, headache.")
         st.stop()
-
-    st.caption(f"Detected symptoms: {', '.join(selected_symptoms[:15])}")
 
     predictions = predictor.predict_top_k(
         symptoms=selected_symptoms,

@@ -12,6 +12,19 @@ from src.utils import normalize_name
 
 
 class MultiDiseasePredictor:
+    CLINICAL_TOKENS = {
+        "age",
+        "gender",
+        "sex",
+        "blood_pressure",
+        "bp",
+        "glucose",
+        "cholesterol",
+        "heart_rate",
+        "insulin",
+        "bmi",
+    }
+
     def __init__(self, artifact_path: Path | None = None, profile_dataset_path: Path | None = None):
         artifact_path = artifact_path or (MODELS_DIR / "multi_disease_model.joblib")
         if not artifact_path.exists():
@@ -24,6 +37,7 @@ class MultiDiseasePredictor:
         self.descriptions = self.artifact.get("descriptions", {})
         self.precautions = self.artifact.get("precautions", {})
         self.disease_profiles: pd.DataFrame | None = None
+        self.symptom_features = sorted([f for f in self.features if f not in self.CLINICAL_TOKENS])
 
         if profile_dataset_path is not None and Path(profile_dataset_path).exists():
             self.disease_profiles = self._load_disease_profiles(Path(profile_dataset_path))
@@ -43,19 +57,7 @@ class MultiDiseasePredictor:
         return profiles
 
     def available_symptoms(self) -> list[str]:
-        clinical_tokens = {
-            "age",
-            "gender",
-            "sex",
-            "blood_pressure",
-            "bp",
-            "glucose",
-            "cholesterol",
-            "heart_rate",
-            "insulin",
-            "bmi",
-        }
-        return sorted([f for f in self.features if f not in clinical_tokens])
+        return self.symptom_features
 
     def _build_input_row(
         self,
@@ -148,6 +150,38 @@ class MultiDiseasePredictor:
                 }
             )
         return predictions
+
+    def suggest_followup_symptoms(
+        self,
+        symptoms: list[str],
+        clinical_features: dict[str, Any] | None = None,
+        n_questions: int = 4,
+    ) -> list[str]:
+        if self.disease_profiles is None or not symptoms:
+            return []
+
+        current = {normalize_name(symptom) for symptom in symptoms}
+        candidates = self.predict_top_k(symptoms, clinical_features=clinical_features, top_k=6)
+        if not candidates:
+            return []
+
+        scores: dict[str, float] = {}
+        for candidate in candidates:
+            disease = candidate["disease"]
+            prob = float(candidate["probability"])
+            if disease not in self.disease_profiles.index:
+                continue
+            row = self.disease_profiles.loc[disease]
+            for symptom_key in self.symptom_features:
+                if symptom_key in current:
+                    continue
+                value = float(row.get(symptom_key, 0.0))
+                if value <= 0:
+                    continue
+                scores[symptom_key] = scores.get(symptom_key, 0.0) + (prob * value)
+
+        ranked = [symptom for symptom, _ in sorted(scores.items(), key=lambda item: item[1], reverse=True)]
+        return ranked[:n_questions]
 
 
 class AuxiliaryRiskPredictor:
