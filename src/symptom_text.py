@@ -6,19 +6,32 @@ from difflib import get_close_matches
 
 # Colloquial phrases -> likely clinical symptom keys.
 PHRASE_TO_SYMPTOMS: dict[str, list[str]] = {
-    "cold": ["continuous_sneezing", "cough", "chills", "runny_nose"],
-    "common cold": ["continuous_sneezing", "cough", "chills", "runny_nose"],
-    "feeling sick": ["fatigue", "weakness", "nausea", "vomiting"],
-    "feel sick": ["fatigue", "weakness", "nausea", "vomiting"],
-    "not feeling well": ["fatigue", "weakness", "malaise"],
+    "cold": ["runny_nose", "continuous_sneezing"],
+    "common cold": ["runny_nose", "continuous_sneezing"],
+    "feeling sick": ["fatigue", "nausea"],
+    "feel sick": ["fatigue", "nausea"],
+    "not feeling well": ["fatigue"],
     "under the weather": ["fatigue", "weakness"],
     "body pain": ["muscle_pain", "joint_pain", "back_pain"],
     "throat pain": ["sore_throat"],
     "chest pain": ["chest_pain"],
     "breathing difficulty": ["breathlessness", "difficulty_breathing"],
     "shortness of breath": ["breathlessness", "difficulty_breathing"],
+    "fever": ["fever", "high_fever"],
     "high temperature": ["fever"],
     "tired": ["fatigue", "weakness"],
+}
+
+NOISE_PREFIXES = {
+    "i_have",
+    "i_am",
+    "im",
+    "i_feel",
+    "i_am_feeling",
+    "have",
+    "feeling",
+    "suffering_from",
+    "from",
 }
 
 
@@ -26,7 +39,15 @@ def normalize_symptom_token(text: str) -> str:
     token = text.strip().lower()
     token = re.sub(r"[^a-z0-9]+", "_", token)
     token = re.sub(r"_+", "_", token)
-    return token.strip("_")
+    token = token.strip("_")
+
+    # Remove common conversational prefixes from chunks.
+    parts = token.split("_")
+    while len(parts) > 1 and "_".join(parts[:2]) in NOISE_PREFIXES:
+        parts = parts[2:]
+    while len(parts) > 1 and parts[0] in NOISE_PREFIXES:
+        parts = parts[1:]
+    return "_".join(parts)
 
 
 def extract_symptoms_from_text(text: str, symptom_vocab: list[str]) -> tuple[list[str], list[str]]:
@@ -45,7 +66,7 @@ def extract_symptoms_from_text(text: str, symptom_vocab: list[str]) -> tuple[lis
                     matched.add(symptom)
 
     # 2) Chunk-based direct/fuzzy mapping.
-    raw_chunks = re.split(r"[,;\n]|\\band\\b|\\bwith\\b|\\balso\\b", text.lower())
+    raw_chunks = re.split(r"[,;\n]|\band\b|\bwith\b|\balso\b", text.lower())
     for chunk in raw_chunks:
         normalized = normalize_symptom_token(chunk)
         if not normalized:
@@ -74,4 +95,3 @@ def extract_symptoms_from_text(text: str, symptom_vocab: list[str]) -> tuple[lis
             matched.add(symptom)
 
     return sorted(matched), sorted(set(unknown))
-

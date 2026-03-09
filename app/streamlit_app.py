@@ -76,7 +76,7 @@ if not artifact_path.exists():
         )
     st.success("Model created successfully.")
 
-predictor = MultiDiseasePredictor(artifact_path=artifact_path)
+predictor = MultiDiseasePredictor(artifact_path=artifact_path, profile_dataset_path=dataset_path)
 aux_predictors = load_optional_aux_predictors()
 all_symptoms = predictor.available_symptoms()
 

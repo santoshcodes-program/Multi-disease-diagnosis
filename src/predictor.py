@@ -12,7 +12,7 @@ from src.utils import normalize_name
 
 
 class MultiDiseasePredictor:
-    def __init__(self, artifact_path: Path | None = None):
+    def __init__(self, artifact_path: Path | None = None, profile_dataset_path: Path | None = None):
         artifact_path = artifact_path or (MODELS_DIR / "multi_disease_model.joblib")
         if not artifact_path.exists():
             raise FileNotFoundError(f"Model artifact not found: {artifact_path}")
@@ -23,6 +23,24 @@ class MultiDiseasePredictor:
         self.label_encoder = self.artifact["label_encoder"]
         self.descriptions = self.artifact.get("descriptions", {})
         self.precautions = self.artifact.get("precautions", {})
+        self.disease_profiles: pd.DataFrame | None = None
+
+        if profile_dataset_path is not None and Path(profile_dataset_path).exists():
+            self.disease_profiles = self._load_disease_profiles(Path(profile_dataset_path))
+
+    def _load_disease_profiles(self, dataset_path: Path) -> pd.DataFrame | None:
+        df = pd.read_csv(dataset_path)
+        if "disease" not in df.columns:
+            return None
+
+        available_features = [feature for feature in self.features if feature in df.columns]
+        if not available_features:
+            return None
+
+        work = df[available_features + ["disease"]].copy()
+        work[available_features] = work[available_features].apply(pd.to_numeric, errors="coerce").fillna(0)
+        profiles = work.groupby("disease")[available_features].mean()
+        return profiles
 
     def available_symptoms(self) -> list[str]:
         clinical_tokens = {
@@ -94,6 +112,27 @@ class MultiDiseasePredictor:
                 class_ids = np.array([predicted])
             else:
                 proba[match_indices[0]] = 1.0
+
+        # Re-rank with symptom overlap profile so predictions reflect typed symptoms better.
+        if self.disease_profiles is not None and symptoms:
+            symptom_keys = [normalize_name(symptom) for symptom in symptoms]
+            symptom_keys = [key for key in symptom_keys if key in self.disease_profiles.columns]
+            if symptom_keys:
+                overlap_scores = np.zeros(len(class_ids), dtype=float)
+                for i, class_id in enumerate(class_ids):
+                    disease = self.label_encoder.inverse_transform([int(class_id)])[0]
+                    if disease in self.disease_profiles.index:
+                        overlap_scores[i] = float(self.disease_profiles.loc[disease, symptom_keys].mean())
+
+                if overlap_scores.max() > overlap_scores.min():
+                    overlap_scores = (overlap_scores - overlap_scores.min()) / (
+                        overlap_scores.max() - overlap_scores.min()
+                    )
+                    proba = (0.75 * proba) + (0.25 * overlap_scores)
+                    proba = np.maximum(proba, 0)
+                    total = float(proba.sum())
+                    if total > 0:
+                        proba = proba / total
 
         top_indices = np.argsort(proba)[::-1][:top_k]
         predictions = []
